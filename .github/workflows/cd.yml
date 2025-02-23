@@ -1,4 +1,5 @@
 name: CD Pipeline
+
 on:
   workflow_run:
     workflows: ["CI Workflow"]
@@ -23,21 +24,30 @@ jobs:
 
       - name: Add known hosts
         run: |
+          mkdir -p ~/.ssh
           ssh-keyscan -p ${{ secrets.SERVER_PORT }} ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Prepare environment file
-        run: |
-          # Creating .env file using secrets
-          echo "SERVER_PORT=${{ secrets.SERVER_PORT }}" >> .env
-          echo "SERVER_HOST=${{ secrets.SERVER_HOST }}" >> .env
-          echo "SERVER_USER=${{ secrets.SERVER_USER }}" >> .env
-          echo "PROJECT_PATH=${{ secrets.PROJECT_PATH }}" >> .env
-          
-
       - name: Deploy to server
+        env:
+          SERVER_PORT: ${{ secrets.SERVER_PORT }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
         run: |
-          ssh -p ${{ secrets.SERVER_PORT }} ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "
-          mkdir -p ${{ secrets.PROJECT_PATH }}
-          cd ${{ secrets.PROJECT_PATH }}
-          docker compose -f devops/docker-compose.yaml pull && docker compose -f devops/docker-compose.yaml up --detach --remove-orphans
-          "
+          ssh -p "$SERVER_PORT" "$SERVER_USER@$SERVER_HOST" << 'EOF'
+          set -e  # Exit on error
+          echo "Deploying to server..."
+          
+          # Ensure the project directory exists
+          mkdir -p "$PROJECT_PATH"
+          cd "$PROJECT_PATH"
+
+          # Pull latest changes
+          git pull origin main || echo "No git repo found, skipping pull"
+
+          # Bring up the updated containers
+          docker compose -f devops/docker-compose.yaml pull
+          docker compose -f devops/docker-compose.yaml up --detach --remove-orphans
+          
+          echo "Deployment completed successfully!"
+          EOF
